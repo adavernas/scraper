@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 import pandas as pd 
-import requests, praw, os
+import requests, praw, os, pickle, re
 
 config = {'limit': 1000,
           'replace_more': 10,
@@ -9,8 +9,10 @@ config = {'limit': 1000,
           'hours': 24}
     
 def count_ticker(text,score,ticker_list):
-    return [((' ' + ticker) in text or (ticker + ' ') in text)*score for ticker in ticker_list]
+    text_clean = re.sub(r"[,.;@#?!&$]+\ *", " ", text)
+    return [((' ' + ticker + ' ') in text_clean)*score for ticker in ticker_list]
     
+# load list of tickers
 if config['exchange']=='S&P500':
     table = pd.read_html('https://en.wikipedia.org/wiki/List_of_S%26P_500_companies')
     df = pd.DataFrame()
@@ -20,11 +22,13 @@ else:
     list_tickers = [item['symbol'] for item in r]
     df = pd.DataFrame(list_tickers, columns=['ticker'])
 
+# load list of common words
 wd = pd.read_csv(os.path.join(os.getcwd(), 'databases', 'common_words.txt'), delimiter = "\t", names=['words'])
 wd = wd[wd.words.apply(lambda x: len(str(x))<=5)]
 wd.words = wd.words.astype(str).str.upper()
 wd = wd.reset_index(drop=True)
 
+# remove 1-letter tickers and common words
 df = df[df.ticker.apply(lambda x: len(str(x))>1)]
 df = df[ [not(wd.words.apply(lambda x: x==ticker).any()) for ticker in df.ticker] ]
 df = df.reset_index(drop=True)
@@ -73,19 +77,17 @@ for post in subreddit.hot(limit=config['limit']):
                 for i, count in enumerate(count_tik):
                     if count==1:
                         text[df.ticker[i]] = text[df.ticker[i]] + '/b/' + comment.body
-                                                  
-df_name = '_'.join((config['exchange'],('h'+str(config['hours'])),str(datetime.today().year),str(datetime.today().month),str(datetime.today().day)))
    
+# save the ticker scores                                            
+df_name = '_'.join((config['exchange'],('h'+str(config['hours'])),str(datetime.today().year),str(datetime.today().month),str(datetime.today().day)))
 df = df.sort_values(by=['count'],ascending=False)
-             
 df.to_csv(os.path.join(os.getcwd(), 'databases', '{}.csv'.format(df_name)), index=False)
 
-f = open(os.path.join(os.getcwd(), 'databases', '{}.txt'.format(df_name)),"w")
-f.write( str(text) )
-f.close()
+# save the corresponding comments
+with open(os.path.join(os.getcwd(), 'databases', '{}.pickle'.format(df_name)),"wb") as handle:
+    pickle.dump(text, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    
+# with open(os.path.join(os.getcwd(), 'databases', '{}.pickle'.format(df_name)),"rb") as handle:
+#     text = pickle.load(handle)
 
-        
-        
-        
-        
         
