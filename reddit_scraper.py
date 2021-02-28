@@ -1,12 +1,12 @@
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 import pandas as pd 
-import praw, os, string
-import requests
+import requests, praw, os
 
-config = {'limit': 1000,
+config = {'limit': 500,
           'replace_more': 10,
           'depth': 3,
-          'exchange': 'US'}
+          'exchange': 'US',
+          'hours': 24}
 
 if config['exchange']=='S&P500':
     table = pd.read_html('https://en.wikipedia.org/wiki/List_of_S%26P_500_companies')
@@ -23,21 +23,28 @@ reddit = praw.Reddit(client_id='POr4MNjRuVfhFQ',
                      username='AAS-sudo',
                      password='SHOF2020!')
 
+
 subreddit = reddit.subreddit('wallstreetbets')
+last_hours = (datetime.now() - timedelta(hours = config['hours']) - datetime(1970, 1, 1)).total_seconds()
 
 df['count'] = 0
+df['score'] = 0
 for post in subreddit.hot(limit=config['limit']):    
     post.comments.replace_more(limit=config['replace_more'])
     df['count'] = df['count'] + [post.title.count(ticker) for ticker in df.ticker]
     df['count'] = df['count'] + [post.selftext.count(ticker) for ticker in df.ticker]
+    
+    df['score'] = df['score'] + [((' ' + ticker + ' ') in post.title)*post.score for ticker in df.ticker]
+    df['score'] = df['score'] + [((' ' + ticker + ' ') in post.selftext)*post.score for ticker in df.ticker]
+    
     for comment in post.comments.list(): 
         if comment.depth <= config['depth']:
-            df['count'] = df['count'] + [comment.body.count(ticker) for ticker in df.ticker]
+            if comment.created_utc >= last_hours:
+                df['count'] = df['count'] + [comment.body.count((' ' + ticker + ' ')) for ticker in df.ticker]
+                df['score'] = df['score'] + [((' ' + ticker + ' ') in comment.body)*comment.score for ticker in df.ticker]
 
-df_name = '_'.join((config['exchange'],str(datetime.today().year),str(datetime.today().month),str(datetime.today().day)))
-                   
-df.to_csv(os.path.join( os.getcwd(), 'database', '{}.csv'.format(df_name)), index=False)
-
-df = df.sort_values(by=['count'])
-
-df[df.ticker.str.len()>=3]
+df_name = '_'.join((config['exchange'],('h'+str(config['hours'])),str(datetime.today().year),str(datetime.today().month),str(datetime.today().day)))
+   
+df = df.sort_values(by=['count'],ascending=False)
+                
+df.to_csv(os.path.join(os.getcwd(), 'databases', '{}.csv'.format(df_name)), index=False)
