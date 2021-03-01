@@ -6,7 +6,8 @@ config = {'limit': 1000,
           'replace_more': 10,
           'depth': 3,
           'exchange': 'US',
-          'hours': 24}
+          'hours': 24,
+          'save': True}
     
 def count_ticker(text,score,ticker_list):
     text_clean = re.sub(r"[,.;@#?!&$]+\ *", " ", text)
@@ -24,12 +25,13 @@ else:
 
 # load list of common words
 wd = pd.read_csv(os.path.join(os.getcwd(), 'databases', 'common_words.txt'), delimiter = "\t", names=['words'])
-wd = wd[wd.words.apply(lambda x: len(str(x))<=5)]
+wd = wd[wd.words.apply(lambda x: len(str(x))<=4)]
 wd.words = wd.words.astype(str).str.upper()
+wd = wd.append(pd.DataFrame({'words': ['YOLO','IPO','LEND','AMEN','IMO',
+                             'DD','UI','HOLD','MOON']}))
 wd = wd.reset_index(drop=True)
 
-# remove 1-letter tickers and common words
-df = df[df.ticker.apply(lambda x: len(str(x))>1)]
+# remove common words
 df = df[ [not(wd.words.apply(lambda x: x==ticker).any()) for ticker in df.ticker] ]
 df = df.reset_index(drop=True)
 
@@ -44,6 +46,8 @@ last_hours = (datetime.now() - timedelta(hours = config['hours']) - datetime(197
 
 df['count'] = 0
 df['score'] = 0
+df['ups']   = 0
+df['downs'] = 0
 
 df['comments'] = ''
 text = df.set_index('ticker')['comments']
@@ -67,27 +71,38 @@ for post in subreddit.hot(limit=config['limit']):
             
     df['score'] = df['score'] + count_ticker(post.title,post.score,df.ticker)
     df['score'] = df['score'] + count_ticker(post.selftext,post.score,df.ticker)
-                     
+    
+    df['ups']   = df['ups']   + count_ticker(post.title,post.ups,df.ticker)
+    df['ups']   = df['ups']   + count_ticker(post.selftext,post.ups,df.ticker)
+    
+    df['downs'] = df['downs'] + count_ticker(post.title,post.downs,df.ticker)
+    df['downs'] = df['downs'] + count_ticker(post.selftext,post.downs,df.ticker)
+                
     for comment in post.comments.list(): 
         if comment.depth <= config['depth']:
             if comment.created_utc >= last_hours:
                 count_tik = count_ticker(comment.body,1,df.ticker)
                 df['count'] = df['count'] + count_tik
                 df['score'] = df['score'] + count_ticker(comment.body,comment.score,df.ticker)
+                df['ups']   = df['ups']   + count_ticker(comment.body,comment.ups,df.ticker)
+                df['downs'] = df['downs'] + count_ticker(comment.body,comment.downs,df.ticker)
+
                 for i, count in enumerate(count_tik):
                     if count==1:
                         text[df.ticker[i]] = text[df.ticker[i]] + '/b/' + comment.body
-   
-# save the ticker scores                                            
-df_name = '_'.join((config['exchange'],('h'+str(config['hours'])),str(datetime.today().year),str(datetime.today().month),str(datetime.today().day)))
-df = df.sort_values(by=['count'],ascending=False)
-df.to_csv(os.path.join(os.getcwd(), 'databases', '{}.csv'.format(df_name)), index=False)
 
-# save the corresponding comments
-with open(os.path.join(os.getcwd(), 'databases', '{}.pickle'.format(df_name)),"wb") as handle:
-    pickle.dump(text, handle, protocol=pickle.HIGHEST_PROTOCOL)
+if config['save']==True:
+    # save the ticker scores                                            
+    df_name = '_'.join((config['exchange'],('h'+str(config['hours'])),str(datetime.today().year),str(datetime.today().month),str(datetime.today().day)))
+    df = df.sort_values(by=['count'],ascending=False)
+    df.to_csv(os.path.join(os.getcwd(), 'databases', '{}.csv'.format(df_name)), index=False)
+
+    text = {k: v for k, v in text.items() if v != ''}
+    # save the corresponding comments
+    with open(os.path.join(os.getcwd(), 'databases', '{}.pickle'.format(df_name)),"wb") as handle:
+        pickle.dump(text, handle, protocol=pickle.HIGHEST_PROTOCOL)
     
-# with open(os.path.join(os.getcwd(), 'databases', '{}.pickle'.format(df_name)),"rb") as handle:
-#     text = pickle.load(handle)
+    # with open(os.path.join(os.getcwd(), 'databases', '{}.pickle'.format(df_name)),"rb") as handle:
+        #     text = pickle.load(handle)
 
         
